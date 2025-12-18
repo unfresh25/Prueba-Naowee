@@ -1,0 +1,42 @@
+project:
+  type: website
+
+author:
+  - name: Jorge Borja
+    url: https://www.linkedin.com/in/jorgeborjas25/
+    degrees:
+      - Mag
+
+website:
+  title: "Prueba Naowee"
+  page-navigation: true
+  sidebar:
+    - contents:
+        - href: index.qmd
+          text: Introducción
+        - text: "Caso 1: Análisis de la copa mundial femenina"
+          href: case1.qmd
+        - section: "Caso 2: Desempeño estudiantes de matemáticas"
+          contents:
+            - text: "Propuesta del caso"
+              href: case2_introduction.qmd
+            - text: "Análisis de los datos"
+              href: case2_analysis.qmd
+            - text: "Modelos predictivos"
+              href: case2_modeling.qmd
+    - tools:
+        - icon: github
+          url: https://github.com/unfresh25/Prueba-Naowee
+
+format:
+  html:
+    theme: cyborg
+    toc: true
+    toc-depth: 3
+    css: styles.css
+    smooth-scroll: true
+    lang: es
+    toc-title: En esta página
+    df-print: paged
+
+#jupyter: f1_env

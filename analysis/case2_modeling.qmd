@@ -1,0 +1,291 @@
+---
+title: "Caso 2: Análisis de Desempeño Estudiantil en Matemáticas"
+subtitle: "Modelos de Predicción del Desempeño Académico"
+toc-depth: 3
+---
+
+# 1. Librerías y configuraciones
+
+Para la construcción de los modelos, utilizaremos las siguientes librerías:
+
+1. Procesamiento de datos
+```{python}
+import os
+
+import pandas as pd
+import numpy as np
+
+from sklearn.model_selection import train_test_split, cross_val_score, GridSearchCV
+from sklearn.preprocessing import StandardScaler
+```
+
+2. Modelos de regresión
+```{python}
+from sklearn.linear_model import LinearRegression, Ridge, Lasso
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.tree import DecisionTreeRegressor
+
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+```
+
+3. Modelos de clasificación
+```{python}
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import SVC
+from sklearn.naive_bayes import GaussianNB
+
+from sklearn.metrics import (
+    accuracy_score, precision_score, recall_score, f1_score,
+    confusion_matrix, classification_report, roc_auc_score, roc_curve
+)
+```
+
+4. Otras librerías
+```{python}
+import joblib
+import warnings
+warnings.filterwarnings('ignore')
+```
+
+5. Comparación de modelos
+```{python}
+def compare_top_models(results_df, model_type='classification'):
+    if model_type == 'regression':
+        top_3 = results_df.nsmallest(3, 'RMSE_Test')
+        metric = 'RMSE_Test'
+    else:
+        top_3 = results_df.nlargest(3, 'F1-Score')
+        metric = 'F1-Score'
+
+    for i, (idx, row) in enumerate(top_3.iterrows(), 1):
+        print(f"{i}. {row['Model']}")
+        if model_type == 'regression':
+            print(f"RMSE Test: {row['RMSE_Test']:.4f}")
+            print(f"MAE Test: {row['MAE_Test']:.4f}")
+            print(f"R² Test: {row['R2_Test']:.4f}")
+            print(f"CV RMSE: {row['CV_RMSE']:.4f}")
+        else:
+            print(f"Accuracy: {row['Accuracy_Test']:.4f}")
+            print(f"Precision: {row['Precision']:.4f}")
+            print(f"Recall: {row['Recall']:.4f}")
+            print(f"F1-Score: {row['F1-Score']:.4f}")
+            if not pd.isna(row['AUC-ROC']):
+                print(f"AUC-ROC: {row['AUC-ROC']:.4f}")
+        print(f"Overfitting: {row['Overfit']:.4f}\n")
+```
+
+6. Guardar modelos
+```{python}
+def save_models(model, model_type='classification'):
+    os.makedirs('models', exist_ok=True)
+
+    if model_type == 'regression':
+        joblib.dump(model, 'models/best_regression_model.pkl')
+    elif model_type == 'classification':
+        joblib.dump(model, 'models/best_classification_model.pkl')
+    elif model_type == 'scaler':
+        joblib.dump(model, 'models/scaler.pkl')
+```
+
+# 2. Carga de datos
+
+Cargaremos los datos del archivo [Student_Performance.csv](https://raw.githubusercontent.com/daramireh/simonBolivarCienciaDatos/refs/heads/main/Student_Performance.csv)
+y utilizaremos las transformaciones utilizadas en el análisis exploratorio antes de estandarizar los datos.
+
+```{python}
+df = pd.read_csv('https://raw.githubusercontent.com/daramireh/simonBolivarCienciaDatos/refs/heads/main/Student_Performance.csv')
+df['Extracurricular Activities'] = df['Extracurricular Activities'].map({'Yes': 1, 'No': 0})
+
+per_25 = df['Performance Index'].quantile(0.25)
+df['Low Performance'] = (df['Performance Index'] < per_25).astype(int)
+```
+
+# 3. Preparación de datos
+```{python}
+features_cols = [
+    'Hours Studied', 'Previous Scores', 'Extracurricular Activities',
+    'Sleep Hours', 'Sample Question Papers Practiced'
+]
+
+X = df[features_cols].copy()
+
+y_reg = df['Performance Index'].copy()
+y_clf = df['Low Performance'].copy()
+```
+
+## Separación de datos en entrenamiento y prueba
+Separaremos los datos en entrenamoento y prueba con un tamaño de prueba del 20% de forma estratificada para la clasificación.
+
+```{python}
+X_train, X_test, y_train_reg, y_test_reg, y_train_clf, y_test_clf = train_test_split(
+    X, y_reg, y_clf, test_size=0.2, random_state=42, stratify=y_clf
+)
+
+print(f'Train size: {X_train.shape[0]}')
+print(f'Test size: {X_test.shape[0]}')
+```
+
+Verificamos la distribución de las clases en el conjunto de entrenamiento y prueba para la clasificación.
+```{python}
+print(f'Train distribution: {y_train_clf.sum()} ({y_train_clf.sum()/len(y_train_clf)*100:.1f}%)')
+print(f'Test distribution: {y_test_clf.sum()} ({y_train_clf.sum()/len(y_train_clf)*100:.1f}%)')
+```
+
+## Escalamiento de características
+```{python}
+scaler = StandardScaler()
+
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+X_train_scaled = pd.DataFrame(X_train_scaled, columns=X.columns, index=X_train.index)
+X_test_scaled = pd.DataFrame(X_test_scaled, columns=X.columns, index=X_test.index)
+
+save_models(scaler, 'scaler')
+```
+
+# 3. Modelos de regresión
+
+```{python}
+models = {
+    'Linear Regression': LinearRegression(),
+    'Ridge Regression': Ridge(alpha=1.0, random_state=42),
+    'Lasso Regression': Lasso(alpha=0.1, random_state=42),
+    'Decision Tree': DecisionTreeRegressor(max_depth=10, random_state=42),
+    'Random Forest': RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42),
+    'Gradient Boosting': GradientBoostingRegressor(n_estimators=100, max_depth=5, random_state=42)
+}
+
+results = []
+regression_models = {}
+
+for name, model in models.items():
+    model.fit(X_train_scaled, y_train_reg)
+
+    y_pred_train = model.predict(X_train_scaled)
+    y_pred_test = model.predict(X_test_scaled)
+
+    mse_train = mean_squared_error(y_train_reg, y_pred_train)
+    rmse_train = np.sqrt(mse_train)
+    mae_train = mean_absolute_error(y_train_reg, y_pred_train)
+    r2_train = r2_score(y_train_reg, y_pred_train)
+
+    mse_test = mean_squared_error(y_test_reg, y_pred_test)
+    rmse_test = np.sqrt(mse_test)
+    mae_test = mean_absolute_error(y_test_reg, y_pred_test)
+    r2_test = r2_score(y_test_reg, y_pred_test)
+
+    cv_scores = cross_val_score(
+        model, X_train_scaled, y_train_reg, cv=5,
+        scoring='neg_mean_squared_error'
+    )
+    cv_rmse = np.sqrt(-cv_scores.mean())
+
+    results.append({
+        'Model': name,
+        'RMSE_Train': rmse_train,
+        'RMSE_Test': rmse_test,
+        'MAE_Train': mae_train,
+        'MAE_Test': mae_test,
+        'R2_Train': r2_train,
+        'R2_Test': r2_test,
+        'CV_RMSE': cv_rmse,
+        'Overfit': r2_train - r2_test
+    })
+
+    regression_models[name] = {
+        'model': model,
+        'predictions': y_pred_test
+    }
+
+results_df = pd.DataFrame(results)
+results_df = results_df.sort_values('RMSE_Test')
+
+best_model_name = results_df.iloc[0]['Model']
+best_model = regression_models[best_model_name]['model']
+
+print(f'Best model: {results_df.iloc[0]["Model"]}, RMSE: {results_df.iloc[0]["RMSE_Test"]:.4f}')
+compare_top_models(results_df, 'regression')
+save_models(best_model, 'regression')
+```
+
+Los resultados muestran que los tres mejores modelos son los métodos de regresión lineal regularizada. Lasso Regression obtuvo
+el mejor desempeño con un RMSE de prueba de 2.0628 y un R² de 0.9887, explicando el 98.87% de la varianza en el Performance Index.
+Ridge Regression y Linear Regression obtuvieron resultados prácticamente idénticos con RMSE de 2.0659 y 2.0660 respectivamente.
+La validación cruzada confirma la robustez de estos modelos, con CV-RMSE de 2.0441 para Lasso.
+
+Se utilizó RMSE (Root Mean Squared Error) como métrica principal porque penaliza más los errores grandes, lo cual es crítico en el
+contexto educativo donde identificar casos extremos de bajo rendimiento es prioritario.
+
+# 4. Modelos de clasificación
+
+```{python}
+models = {
+    'Logistic Regression': LogisticRegression(random_state=42, max_iter=1000),
+    'Decision Tree': DecisionTreeClassifier(max_depth=10, random_state=42),
+    'Random Forest': RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42),
+    'Gradient Boosting': GradientBoostingClassifier(n_estimators=100, max_depth=5, random_state=42),
+    'SVM': SVC(kernel='rbf', probability=True, random_state=42),
+    'Naive Bayes': GaussianNB()
+}
+
+results = []
+classification_models = {}
+
+for name, model in models.items():
+    model.fit(X_train_scaled, y_train_clf)
+
+    y_pred_train = model.predict(X_train_scaled)
+    y_pred_test = model.predict(X_test_scaled)
+    y_pred_proba = model.predict_proba(X_test_scaled)[:, 1] if hasattr(model, 'predict_proba') else None
+
+    acc_train = accuracy_score(y_train_clf, y_pred_train)
+
+    acc_test = accuracy_score(y_test_clf, y_pred_test)
+    precision_test = precision_score(y_test_clf, y_pred_test, zero_division=0)
+    recall_test = recall_score(y_test_clf, y_pred_test, zero_division=0)
+    f1_test = f1_score(y_test_clf, y_pred_test, zero_division=0)
+
+    auc_test = roc_auc_score(y_test_clf, y_pred_proba) if y_pred_proba is not None else None
+
+    cv_scores = cross_val_score(model, X_train_scaled, y_train_clf, cv=5, scoring='accuracy')
+    cv_acc = cv_scores.mean()
+
+    results.append({
+        'Model': name,
+        'Accuracy_Train': acc_train,
+        'Accuracy_Test': acc_test,
+        'Precision': precision_test,
+        'Recall': recall_test,
+        'F1-Score': f1_test,
+        'AUC-ROC': auc_test if auc_test else np.nan,
+        'CV_Accuracy': cv_acc,
+        'Overfit': acc_train - acc_test
+    })
+
+    classification_models[name] = {
+        'model': model,
+        'predictions': y_pred_test,
+        'probabilities': y_pred_proba
+    }
+
+results_df = pd.DataFrame(results)
+results_df = results_df.sort_values('F1-Score', ascending=False)
+
+best_model_name = results_df.iloc[0]['Model']
+best_model = classification_models[best_model_name]['model']
+
+print(f'Best model: {results_df.iloc[0]["Model"]}, Accuracy: {results_df.iloc[0]["Accuracy_Test"]:.4f}')
+compare_top_models(results_df, 'classification')
+save_models(best_model, 'classification')
+```
+
+Los resultados demuestran que Logistic Regression es el mejor modelo con una accuracy de 97.25%, precision de 94.32%, recall de
+94.12% y un F1-Score de 0.9422. El área bajo la curva ROC (AUC-ROC) de 0.9970 indica una capacidad excepcional para discriminar
+entre ambas clases. Gradient Boosting y Random Forest obtuvieron desempeños muy similares con F1-Scores de 0.9417 y 0.9382
+respectivamente, confirmando la solidez de los resultados.
+
+Se utilizó F1-Score como métrica principal porque ofrece un balance óptimo entre precision y recall, lo cual es fundamental en este
+contexto.

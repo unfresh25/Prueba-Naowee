@@ -1,0 +1,12 @@
+---
+title: "Prueba Técnica para Científico de Datos"
+subtitle: "Naowee"
+description: |
+ Evaluación de las habilidades y conocimientos para el análisis de datos desde la manipulación, transformación y
+ análisis de datos a través de casos prácticos.
+format:
+    html:
+        toc: false
+---
+
+Prueba técnica para el rol de Científico de Datos para Naowee.

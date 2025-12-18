@@ -1,0 +1,526 @@
+---
+title: "Caso 1: Análisis de la copa mundial femenina"
+subtitle: "Naowee"
+format:
+  html:
+    df-print: paged
+    toc-depth: 3
+---
+
+# Propuesta del Caso
+## Contexto y desafío
+La Copa Mundial Femenina de la FIFA ha experimentado un crecimiento exponencial desde su primera edición en 1991, atrayendo
+una audiencia global y consolidando el fútbol femenino como un pilar del deporte internacional. Con la evolución del torneo, ha
+surgido la necesidad de analizar tendencias en el desempeño de las selecciones, patrones de juego y factores que contribuyen al
+éxito en la competición.
+
+## El reto analítico
+La FIFA está interesada en un análisis detallado del rendimiento de los equipos en las distintas ediciones del torneo, identificando
+patrones en la cantidad de goles, frecuencia de victorias y desempeño a lo largo de los años. Se busca descubrir qué selecciones
+han dominado históricamente y cómo ha evolucionado el nivel de competitividad.
+
+## Metodología y enfoque
+A través del análisis de datos de partidos de la Copa Mundial Femenina desde 1991 hasta 2023, se espera:
+- Identificar tendencias de goles y resultados a lo largo de los torneos.
+- Determinar los equipos con mayor rendimiento en cada edición.
+- Explorar patrones de juego y evolución del fútbol femenino a nivel internacional.
+
+## Preguntas Clave
+- ¿Cómo ha cambiado el promedio de goles por partido a lo largo de los torneos?
+- ¿Cuáles son las selecciones con mejor desempeño en términos de victorias?
+- ¿Existen tendencias en los equipos dominantes y con peor desempeño?
+
+## Datos
+Para la solución del caso, debe utilizar los siguientes dataset:
+[world_cup_women.csv](https://raw.githubusercontent.com/daramireh/simonBolivarCienciaDatos/refs/heads/main/world_cup_women.csv)
+y
+[world_cup_matches.csv](https://raw.githubusercontent.com/daramireh/simonBolivarCienciaDatos/refs/heads/main/matches_1991_2023.csv)
+
+# Desarrollo del caso
+## 0. Datos y utilidades
+```{python}
+import ast
+import pandas as pd
+import matplotlib.pyplot as plt
+
+url_wc = "https://raw.githubusercontent.com/daramireh/simonBolivarCienciaDatos/refs/heads/main/world_cup_women.csv"
+url_matches = "https://raw.githubusercontent.com/daramireh/simonBolivarCienciaDatos/refs/heads/main/matches_1991_2023.csv"
+
+world_cup = pd.read_csv(url_wc)
+matches = pd.read_csv(url_matches)
+```
+
+### Servicio para análisis de variables {#sec-AnalysisService}
+```{python}
+#| code-fold: true
+class AnalysisService:
+    def __init__(self, df: pd.DataFrame):
+        self.df = df
+
+    def summary(self) -> pd.DataFrame:
+        summary_df = pd.DataFrame(
+            {
+                "Column": self.df.columns,
+                "# Rows": [self.df.shape[0] for _ in self.df.columns],
+                "# Nulls": [self.df[col].isna().sum() for col in self.df.columns],
+                "Type": [self.df[col].dtype for col in self.df.columns],
+            }
+        )
+
+        duplicated_rows = self.df.duplicated().sum()
+
+        print(f"\n{duplicated_rows} duplicated rows")
+        print(summary_df)
+
+    @staticmethod
+    def related_columns(df1: pd.DataFrame, df2: pd.DataFrame) -> pd.DataFrame:
+        common_columns = set(df1.columns) & set(df2.columns)
+        validation = []
+
+        for col in common_columns:
+            only_in_df1 = set(df1[col].dropna()) - set(df2[col].dropna())
+            only_in_df2 = set(df2[col].dropna()) - set(df1[col].dropna())
+
+            validation.append(
+                {
+                    "column": col,
+                    "df1_nulls": df1[col].isna().sum(),
+                    "df2_nulls": df2[col].isna().sum(),
+                    "only_df1": len(only_in_df1),
+                    "only_df2": len(only_in_df2),
+                }
+            )
+
+        val_df = pd.DataFrame(validation)
+
+        print(f"\nCommon columns: {common_columns}\n")
+        print(val_df)
+```
+
+### Servicio para análisis de resultados {#sec-ResultsService}
+```{python}
+#| code-fold: true
+class ResultsService:
+    def __init__(self, data: pd.DataFrame):
+        self.data = data
+        self.base_matches = self._build_base_matches()
+        self.matches = self._build_results_matches()
+
+    @staticmethod
+    def _parse_events(x) -> list:
+        if pd.isna(x) or isinstance(x, list):
+            return x if isinstance(x, list) else []
+        if isinstance(x, str):
+            try:
+                parsed = ast.literal_eval(x)
+                return parsed if isinstance(parsed, list) else []
+            except (ValueError, SyntaxError):
+                return []
+        return []
+
+    @staticmethod
+    def _count_events(x) -> int:
+        return len(ResultsService._parse_events(x))
+
+    @staticmethod
+    def _parse_penalty_goals(x) -> list:
+        if pd.isna(x) or not isinstance(x, str):
+            return []
+        return [
+            event.split("·")[0].replace("(P)", "").strip() for event in x.split("|")
+        ]
+
+    def _explode_events(self, df, event_col, team_col, parser):
+        return (
+            df[[event_col, team_col]]
+            .dropna()
+            .assign(player=lambda x: x[event_col].apply(parser))
+            .explode("player")
+            .drop(columns=event_col)
+            .dropna()
+            .rename(columns={team_col: "team"})
+        )
+
+    def _count_goal_assists(self, df, goal_col, team_col):
+        return (
+            df[[goal_col, team_col, "Year", "Host"]]
+            .dropna(subset=[goal_col])
+            .assign(events=lambda x: x[goal_col].apply(self._parse_events))
+            .explode("events")
+            .assign(has_assist=lambda x: x["events"].str.contains("Assist:"))
+            .rename(columns={team_col: "team"})
+            .groupby(["Year", "Host", "team"])["has_assist"]
+            .sum()
+            .reset_index(name="assists")
+        )
+
+    def _build_base_matches(self) -> pd.DataFrame:
+        cols_home = [
+            "Year",
+            "Host",
+            "Attendance",
+            "home_team",
+            "home_score",
+            "away_score",
+            "home_yellow_card_long",
+            "home_red_card",
+        ]
+        cols_away = [
+            "Year",
+            "Host",
+            "Attendance",
+            "away_team",
+            "away_score",
+            "home_score",
+            "away_yellow_card_long",
+            "away_red_card",
+        ]
+        cols_final = [
+            "Year",
+            "Host",
+            "Attendance",
+            "team",
+            "goals_for",
+            "goals_against",
+            "yellow_cards",
+            "red_cards",
+        ]
+
+        home = self.data[cols_home].copy()
+        home.columns = cols_final
+
+        away = self.data[cols_away].copy()
+        away.columns = cols_final
+
+        return pd.concat([home, away], ignore_index=True)
+
+    def _build_results_matches(self) -> pd.DataFrame:
+        df = self.base_matches.copy()
+        df["yellow_cards"] = df["yellow_cards"].apply(self._count_events)
+        df["red_cards"] = df["red_cards"].apply(self._count_events)
+        df["win"] = (df["goals_for"] > df["goals_against"]).astype(int)
+        df["draw"] = (df["goals_for"] == df["goals_against"]).astype(int)
+        df["loss"] = (df["goals_for"] < df["goals_against"]).astype(int)
+        df["points"] = df["win"] * 3 + df["draw"]
+        df["fair_play"] = -df["yellow_cards"] - 2 * df["red_cards"]
+        return df
+
+    def get_results(self) -> pd.DataFrame:
+        results = (
+            self.matches.groupby("team")
+            .agg(
+                GP=("team", "count"),
+                W=("win", "sum"),
+                D=("draw", "sum"),
+                L=("loss", "sum"),
+                GF=("goals_for", "sum"),
+                GA=("goals_against", "sum"),
+                FP=("fair_play", "sum"),
+                Points=("points", "sum"),
+            )
+            .reset_index()
+        )
+        results["GD"] = results["GF"] - results["GA"]
+        results = results[
+            ["team", "GP", "W", "D", "L", "GF", "GA", "GD", "FP", "Points"]
+        ]
+        return results.sort_values(
+            by=["Points", "GD"], ascending=False, ignore_index=True
+        ).rename(columns={"team": "Team"})
+
+    def top_scorers(
+        self, include_penalties: bool = True, top_n: int = 10
+    ) -> pd.DataFrame:
+        parser = lambda x: [e.split("|")[2].strip() for e in self._parse_events(x)]
+
+        goals_play = pd.concat(
+            [
+                self._explode_events(self.data, "home_goal_long", "home_team", parser),
+                self._explode_events(self.data, "away_goal_long", "away_team", parser),
+            ],
+            ignore_index=True,
+        )
+
+        dfs = [goals_play]
+
+        if include_penalties:
+            penalties = pd.concat(
+                [
+                    self._explode_events(
+                        self.data,
+                        "home_penalty_goal",
+                        "home_team",
+                        self._parse_penalty_goals,
+                    ),
+                    self._explode_events(
+                        self.data,
+                        "away_penalty_goal",
+                        "away_team",
+                        self._parse_penalty_goals,
+                    ),
+                ],
+                ignore_index=True,
+            )
+            dfs.append(penalties)
+
+        scorers = (
+            pd.concat(dfs, ignore_index=True)
+            .value_counts(["player", "team"])
+            .reset_index(name="Goals")
+            .sort_values("Goals", ascending=False)
+            .reset_index(drop=True)
+        )
+
+        scorers["Position"] = (
+            scorers["Goals"].rank(method="min", ascending=False).astype(int)
+        )
+        scorers = scorers[["Position", "player", "team", "Goals"]].rename(
+            columns={"player": "Player", "team": "Team"}
+        )
+
+        return scorers.sort_values(["Position", "Player"], ignore_index=True).head(
+            top_n
+        )
+
+    def world_cup_summary(self) -> pd.DataFrame:
+        summary = (
+            self.matches.groupby(["Year", "Host", "team"])
+            .agg(
+                GP=("team", "count"),
+                GF=("goals_for", "sum"),
+                GF_avg=("goals_for", "mean"),
+                GA=("goals_against", "sum"),
+                GA_avg=("goals_against", "mean"),
+                W=("win", "sum"),
+                D=("draw", "sum"),
+                L=("loss", "sum"),
+            )
+            .reset_index()
+        )
+
+        assists = (
+            pd.concat(
+                [
+                    self._count_goal_assists(self.data, "home_goal_long", "home_team"),
+                    self._count_goal_assists(self.data, "away_goal_long", "away_team"),
+                ],
+                ignore_index=True,
+            )
+            .groupby(["Year", "Host", "team"], as_index=False)["assists"]
+            .sum()
+        )
+
+        summary = summary.merge(assists, on=["Year", "Host", "team"], how="left")
+        summary["assists"] = summary["assists"].fillna(0)
+        summary["Assist Avg"] = summary["assists"] / summary["GP"]
+
+        summary = summary[
+            [
+                "Year",
+                "Host",
+                "team",
+                "GP",
+                "GF",
+                "GF_avg",
+                "GA",
+                "GA_avg",
+                "W",
+                "D",
+                "L",
+                "Assist Avg",
+            ]
+        ]
+        summary.columns = [
+            "Year",
+            "Host",
+            "Team",
+            "GP",
+            "GF",
+            "GF Avg",
+            "GA",
+            "GA Avg",
+            "W",
+            "D",
+            "L",
+            "Assist Avg",
+        ]
+
+        return summary.sort_values(
+            by=["Year", "GF"], ascending=[True, False], ignore_index=True
+        )
+```
+
+
+## 1. Análisis de variables
+Se debe realizar un análisis donde identifique las variables del conjunto de datos mostrando los valores nulos, duplicados y el tipo de variable.
+
+Para el análisis de las variables, se usará la clase definida en la @sec-AnalysisService utilizando la función `summary()`.
+```{python}
+analysis_wc = AnalysisService(world_cup)
+analysis_matches = AnalysisService(matches)
+
+analysis_wc.summary()
+analysis_matches.summary()
+```
+
+## 2. Validación entre tablas
+Se debe realizar una validación cruzada entre las tablas, identifique los campos que relacionan las tablas y si existen datos faltantes en dichos campos.
+
+Para el análisis de las variables, se usará la clase definida en la @sec-AnalysisService utilizando la función `related_columns()`.
+```{python}
+AnalysisService.related_columns(world_cup, matches)
+```
+
+## 3. Tabla de posiciones
+Se debe elaborar la tabla de posiciones del mundial realizado en 1991. Tenga en cuenta que cada partido ganado da 3 puntos, cada parti do
+empatado da 1 punto. Así mismo, las tarjetas amarillas suman -1 punto para juego limpio y las tarjetas rojas – 2 puntos a juego
+limpio.
+
+La tabla debe tener la siguiente estructura:
+Equipo | Partidos Jugados (PJ) | Partidos Ganados (PG) | Partidos Empatados (PE) | Partidos Perdidos (PP)| Goles a Favor (GF) |
+Goles en Contra (GC) | Diferencia de Goles (GF – GC) | Juego Limpio (JL) | Puntos
+
+Para esto, debemos crear una copia del dataframe `matches` filtrada por el año 1991.
+```{python}
+matches_1991 = matches[matches['Year'] == 1991].copy()
+```
+
+Y, para calcular la tabla de posiciones, se usará la clase definida en la @sec-ResultsService utilizando la función `get_results()`.
+
+```{python}
+results = ResultsService(matches_1991)
+table_1991 = results.get_results()
+print(table_1991)
+```
+## 4. Tabla de goleadoras
+Se debe elaborar la tabla de goleadoras del mundial de 2023.
+
+Para esto, debemos crear una copia del dataframe `matches` filtrada por el año 2023.
+```{python}
+matches_2023 = matches[matches['Year'] == 2023].copy()
+```
+
+Esta tabla será calculada utilizando la clase definida en la @sec-ResultsService utilizando la función `top_scorers()`.
+
+```{python}
+results = ResultsService(matches_2023)
+top_scorers_2023 = results.top_scorers()
+print(top_scorers_2023)
+```
+
+## 5. Tabla analítica
+Debe construir una rutina cuya salida sea **UNA ÚNICA TABLA** que muestre:
+
+Año | Host | Equipo | Partidos Jugados | Goles Totales marcados | Promedio de Goles marcados | Goles Totales recibidos | promedio
+de goles recibidos | partidos totales ganados | partidos totales perdidos | partidos totales empatados | promedio de asistencia por
+equipo.
+
+Esta tabla será calculada utilizando la clase definida en la @sec-ResultsService utilizando la función `world_cup_summary()`.
+
+```{python}
+results = ResultsService(matches)
+summary = results.world_cup_summary()
+print(summary)
+```
+
+# Respuesta a preguntas
+
+En esta sección se responderán las preguntas claves planteadas en el caso.
+
+## 1. ¿Cómo ha cambiado el promedio de goles por partido a lo largo de los torneos?
+
+Para hallar el promedio de goles realizados por partido, debemos tomar los goles marcados por equipo.
+Para ello, usaremos la tabla `summary` obtenida en la sección anterior.
+
+```{python}
+goals_trend = (
+    summary.groupby("Year").agg({"GF": "sum", "GA": "sum"}).reset_index()
+)
+
+goals_trend["Total Goals Avg"] = (goals_trend["GF"] + goals_trend["GA"]) / 2
+print("\nAverage Goals Trend:")
+print(goals_trend)
+```
+
+```{python}
+#| echo: false
+plt.figure(figsize=(8, 6))
+plt.plot(goals_trend["Year"], goals_trend["Total Goals Avg"], marker="o", linewidth=2)
+plt.title("Average Goals Trend")
+plt.xlabel("Year")
+plt.ylabel("Average Goals")
+plt.grid(True, alpha=0.3)
+plt.show()
+```
+
+Como podemos observar, a medida que avanzan los años, el promedio de goles por partido ha aumentado. Esto puede deberse
+a factores como el aumento de la calidad de los equipos, la mejora en el entrenamiento y la tecnología utilizada en el juego.
+Además, también puede deberse a la introducción de nuevas reglas y cambios en el formato del torneo, como del aumento de
+equipos participantes.
+
+
+## 2. ¿Cuáles son las selecciones con mejor desempeño en términos de victorias?
+
+```{python}
+best_teams = (
+    summary.groupby("Team")
+    .agg({"W": "sum", "GP": "sum", "GF": "sum", "GA": "sum"})
+    .reset_index()
+)
+
+best_teams["Win Rate"] = (best_teams["W"] / best_teams["GP"] * 100).round(2)
+best_teams["GD"] = best_teams["GF"] - best_teams["GA"]
+
+best_teams = best_teams.sort_values("W", ascending=False, ignore_index=True)
+print("\nTop 10 teams:")
+print(best_teams[["Team", "GP", "W", "Win Rate", "GD"]].head(10))
+```
+
+Este resultado es interesante pues, si tuviesemos en cuenta el ratio de victorias y no solo la cantidad de partidos ganados,
+podríamos decir que el top 3 de selecciones con mejor desempeño en términos de ratio de victorias es:
+
+1. Estados Unidos
+2. Alemania
+3. Paises Bajos
+
+## 3. ¿Existen tendencias en los equipos dominantes y con peor desempeño?
+Esta es una pregunta bastante curiosa, pues no necesariamente una selección que logró ganar muchos mundiales en el pasado,
+se mantendrá como una selección dominante en el futuro. Pues, cada año nacen nuevos jugadores que pueden tener un gran
+impacto en el desempeño de sus selecciones.
+
+```{python}
+dominant_teams = best_teams[best_teams["GP"] >= 10].sort_values("Win Rate", ascending=False)
+print("Most dominant teams (min 10 games):")
+print(dominant_teams[["Team", "GP", "W", "Win Rate", "GD"]].head(10))
+
+worst_teams = best_teams[best_teams["GP"] >= 10].sort_values("Win Rate", ascending=True)
+print("\nWorst performing teams (min 10 games):")
+print(worst_teams[["Team", "GP", "W", "Win Rate", "GD"]].head(10))
+```
+
+Con esto podemos evidenciar lo mencionado anteriormente: que un equipo haya ganado muchos partidos en el pasado
+no necesariamente tendrá un buen desempeño en el futuro.
+
+```{python}
+team_evolution = (
+    summary.groupby(["Team", "Year"]).agg({"W": "sum", "GP": "sum"}).reset_index()
+)
+
+team_evolution["Win Rate"] = (team_evolution["W"] / team_evolution["GP"] * 100).round(2)
+
+consistency = (
+    team_evolution.groupby("Team")
+    .agg({"Win Rate": ["mean", "std", "count"]})
+    .reset_index()
+)
+consistency.columns = ["Team", "Avg Win Rate", "Std Win Rate", "Tournaments"]
+consistency = consistency[consistency["Tournaments"] >= 3].sort_values(
+    "Std Win Rate"
+)
+
+print("\nMost consistent teams (min 3 tournaments):")
+print(consistency.head(10).reset_index(drop=True))
+
+print("\nMost inconsistent teams (min 3 tournaments):")
+print(consistency.tail(10).reset_index(drop=True))
+```

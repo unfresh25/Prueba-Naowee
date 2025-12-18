@@ -33,7 +33,7 @@ results = ResultsService(matches)
 summary = results.world_cup_summary()
 print(summary)
 
-# 1. Promedio de goles por partido a lo largo de los años
+# 1. ¿Cómo ha cambiado el promedio de goles por partido a lo largo de los torneos?
 goals_trend = (
     summary.groupby("Year").agg({"GF Avg": "mean", "GA Avg": "mean"}).reset_index()
 )

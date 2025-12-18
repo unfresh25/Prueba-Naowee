@@ -1,0 +1,63 @@
+---
+title: "Caso 2: Análisis de Desempeño Estudiantil en Matemáticas"
+subtitle: "Propuesta de caso"
+format:
+  html:
+    df-print: paged
+    toc-depth: 3
+---
+
+# El reto analítico
+Una universidad ha recopilado información sobre el desempeño de sus estudiantes en matemáticas con el objetivo
+de identificar los factores que más influyen en su rendimiento. Se busca entender cómo aspectos como el tiempo
+de estudio, la asistencia a actividades extracurriculares y las horas de sueño inciden en el puntaje final.
+
+# Metodología y enfoque
+A través del análisis de datos de estudiantes universitarios, se espera:
+- Evaluar la relación entre el tiempo de estudio y las calificaciones finales.
+- Identificar diferencias de desempeño según la asistencia a actividades extracurriculares.
+- Aplicar modelos de regresión para predecir el rendimiento académico y entender sus principales determinantes.
+
+# Preguntas clave
+- ¿Cuáles son los principales factores que afectan el rendimiento en matemáticas?
+- ¿Existe una correlación entre el tiempo de estudio y la calificación final?
+- ¿Cómo varía el desempeño según la asistencia a actividades extracurriculares y la resolución de los ejercicios
+prácticos propuestos en el material de estudio?
+
+# Resultados esperados
+Con base en el dataset [Student_Performance.csv](https://raw.githubusercontent.com/daramireh/simonBolivarCienciaDatos/refs/heads/main/Student_Performance.csv)
+realice:
+
+1. Análisis de Estructuras de Datos a través de:
+- Visualizaciones de datos: es importante que usted haga una descripción de los hallazgos.
+- Identifique las variables, tipo de dato y elabore un diccionario de datos con estas variables (puede hacerlo en Excel conectándose
+directamente al Raw).
+- ¿Es necesario transformar los datos para mejor entendimiento de los mismos? Si su respuesta es positiva, ¿qué tipo de transformaciones
+haría? Si considera necesario, realice las transformaciones para desarrollar los puntos posteriores.
+
+2. Como resultado del análisis de las estructuras de datos del punto anterior, elabore un análisis exploratorio donde identifique:
+- Estadística descriptiva de las variables. Haga una descripción de los hallazgos.
+- ¿Existen diferencias estadísticas entre el puntaje final (Performance Index) y la asistencia a actividades extracurriculares? En la
+resolución se debe poder observar todo el proceso realizado para la respuesta.
+- Identifique los grupos o conglomerados de estudiantes según sus características
+
+# Producto esperado
+Es necesario identificar potenciales estudiantes con bajo desempeño por lo que es importante desarrollar un producto de datos que le facilite a la
+institución la identificación temprana de estos casos. Para ello, le han solicitado a usted desarrollador una API con las siguientes condiciones:
+
+1. Debe desarrollar un modelo predictivo utilizando Machine Learning de los estudiantes con bajo rendimiento académico (defina usted como
+los identificaría a partir del análisis exploratorio hecho anteriormente).
+**Nota:** Para el entregable de la prueba debe entrenar un modelo de regresión y un modelo de clasificación.
+
+2. Con los modelos entrenados, elija uno el cuál debe ser ser comparado con al menos 2 modelos más para comprobar que es el más eficiente
+para identificar el bajo desempeño académico.
+
+3. Debe definir la métrica de desempeño utilizada para seleccionar el mejor modelo.
+
+4. Debe desarrollar una API para poder consumir el modelo entrenado. La API debe ser desarrollada en Python preferiblemente con FastAPI y
+dockerizada. Debe entregar el link del repositorio con la API.
+
+- Si conoce los principios SOLID aplíquelos.
+- Simule el CRUD de la API con diccionarios.
+- Entregue las muestras utilizadas comprobar el funcionamiento de la API ya sea en Postman o en Swagger.
+- Si no sabe usar Docker, elabore la API con un entorno virtual
